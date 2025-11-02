@@ -5,9 +5,6 @@ exception Mismatch
 exception Dirty
 exception Unknown_word of string
 
-module IntMap = Hashtbl.Make (Int)
-module StringMap = Hashtbl.Make (String)
-
 let string_of_value = function
   | VInt i -> string_of_int i
   | VStr s -> Printf.sprintf "%S" s
@@ -24,17 +21,6 @@ type prim =
 
 type thunk = ThPrim of prim
 type env = { data : value Stack.t; latent : thunk Stack.t Stack.t }
-
-let concat_effect self other =
-  let out_h = List.length (snd self) in
-  let in_h = List.length (fst other) in
-  let flow = out_h - in_h in
-  if flow < 0 then
-    let needed = List.take (abs flow) (fst other) in
-    (needed @ fst self, snd other)
-  else
-    let leaves = List.take (abs flow) (snd self) in
-    (fst self, leaves @ snd other)
 
 let make_env () =
   {
@@ -76,7 +62,7 @@ let unify a b =
   List.compare_lengths a b == 0 && List.for_all2 aux a b
 
 let do_prim env =
-  let bin_op op stk =
+  let arith_op op stk =
     let b = Stack.pop stk in
     let a = Stack.pop stk in
     match (a, b) with
@@ -84,8 +70,8 @@ let do_prim env =
     | _ -> raise Mismatch
   in
   function
-  | PrimAdd -> bin_op ( + ) env.data
-  | PrimMul -> bin_op ( * ) env.data
+  | PrimAdd -> arith_op ( + ) env.data
+  | PrimMul -> arith_op ( * ) env.data
   | PrimConcat -> (
       let b = Stack.pop env.data in
       let a = Stack.pop env.data in
@@ -134,7 +120,7 @@ and with_latent_scope env fn =
   if Stack.length lstk > 0 then raise Dirty else Stack.drop env.latent
 
 (* A dumb tree-walking interpreter. *)
-and interpret : env -> Parsing.tree -> unit =
+let rec interpret : env -> Parsing.tree -> unit =
  fun env ->
   let open Parsing in
   let rec step = function
