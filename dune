@@ -1,4 +1,2 @@
 (executable
- (name mini)
- (libraries base)
- (preprocess (pps ppx_jane)))
+ (name mini))
