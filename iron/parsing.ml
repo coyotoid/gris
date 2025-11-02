@@ -8,7 +8,7 @@ type atom = AInt of int | AString of string | AWord of string
 
 let string_of_atom = function
   | AInt i -> string_of_int i
-  | AString s -> Printf.sprintf "%S" s
+  | AString s -> "\"" ^ String.escaped s ^ "\""
   | AWord w -> w
 
 type tree = TGroup of tree list | TAtom of atom

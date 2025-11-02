@@ -1,5 +1,5 @@
 type value = VInt of int | VStr of string
-type ty = TyInt | TyString | TyVar of int
+type ty_r = RInt | RStr | RAny
 
 exception Mismatch
 exception Dirty
@@ -7,7 +7,7 @@ exception Unknown_word of string
 
 let string_of_value = function
   | VInt i -> string_of_int i
-  | VStr s -> Printf.sprintf "%S" s
+  | VStr s -> "\"" ^ String.escaped s ^ "\""
 
 type prim =
   | PrimAdd
@@ -16,6 +16,8 @@ type prim =
   | PrimSwap
   | PrimDup
   | PrimDrop
+  | PrimBury
+  | PrimUnbury
   | PrimShow
   | PrimPrint
 
@@ -35,28 +37,31 @@ let prim_of_string_opt = function
   | "swap" -> Some PrimSwap
   | "dup" -> Some PrimDup
   | "drop" -> Some PrimDrop
+  | "bury" -> Some PrimBury
+  | "unbury" -> Some PrimUnbury
   | "show" -> Some PrimShow
   | "print" -> Some PrimPrint
   | _ -> None
 
 let prim_shape = function
-  | PrimAdd | PrimMul -> ([ TyInt; TyInt ], [ TyInt ])
-  | PrimConcat -> ([ TyString; TyString ], [ TyString ])
-  | PrimSwap -> ([ TyVar 0; TyVar 1 ], [ TyVar 1; TyVar 0 ])
-  | PrimDrop -> ([ TyVar 0 ], [])
-  | PrimDup -> ([ TyVar 0 ], [ TyVar 0; TyVar 0 ])
-  | PrimShow -> ([ TyInt ], [ TyString ])
-  | PrimPrint -> ([ TyString ], [])
+  | PrimAdd | PrimMul -> ([ RInt; RInt ], [ RInt ])
+  | PrimConcat -> ([ RStr; RStr ], [ RStr ])
+  | PrimSwap -> ([ RAny; RAny ], [ RAny; RAny ])
+  | PrimDrop -> ([ RAny ], [])
+  | PrimDup -> ([ RAny ], [ RAny; RAny ])
+  | PrimUnbury -> ([ RAny; RAny; RAny ], [ RAny; RAny; RAny ])
+  | PrimBury -> ([ RAny; RAny; RAny ], [ RAny; RAny; RAny ])
+  | PrimShow -> ([ RInt ], [ RStr ])
+  | PrimPrint -> ([ RStr ], [])
 
-let ty_of_value = function VInt _ -> TyInt | VStr _ -> TyString
+let ty_of_value = function VInt _ -> RInt | VStr _ -> RStr
 
 let unify a b =
   let aux a b =
     match (a, b) with
-    | TyInt, TyInt -> true
-    | TyString, TyString -> true
-    | TyVar a, TyVar b -> Int.equal a b
-    | TyVar _, _ | _, TyVar _ -> true
+    | RInt, RInt -> true
+    | RStr, RStr -> true
+    | RAny, _ | _, RAny -> true
     | _, _ -> false
   in
   List.compare_lengths a b == 0 && List.for_all2 aux a b
@@ -83,6 +88,20 @@ let do_prim env =
       let b = Stack.pop env.data in
       Stack.push a env.data;
       Stack.push b env.data
+  | PrimBury ->
+      let c = Stack.pop env.data in
+      let b = Stack.pop env.data in
+      let a = Stack.pop env.data in
+      Stack.push c env.data;
+      Stack.push a env.data;
+      Stack.push b env.data
+  | PrimUnbury ->
+      let c = Stack.pop env.data in
+      let b = Stack.pop env.data in
+      let a = Stack.pop env.data in
+      Stack.push b env.data;
+      Stack.push c env.data;
+      Stack.push a env.data
   | PrimDup -> Stack.push (Stack.top env.data) env.data
   | PrimDrop -> Stack.drop env.data
   | PrimShow -> (
@@ -113,13 +132,12 @@ let rec latent_check env =
   | None -> ()
 
 and with_latent_scope env fn =
-  let lstk = Stack.create () in
-  Stack.push lstk env.latent;
+  let ls = Stack.create () in
+  Stack.push ls env.latent;
   fn ();
   latent_check env;
-  if Stack.length lstk > 0 then raise Dirty else Stack.drop env.latent
+  if Stack.length ls > 0 then raise Dirty else Stack.drop env.latent
 
-(* A dumb tree-walking interpreter. *)
 let rec interpret : env -> Parsing.tree -> unit =
  fun env ->
   let open Parsing in
