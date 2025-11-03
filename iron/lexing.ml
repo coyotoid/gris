@@ -1,9 +1,4 @@
-type token =
-  | Word of string
-  | String of string
-  | Int of int
-  | LParen
-  | RParen
+type token = Word of string | String of string | Int of int | LParen | RParen
 
 let lex s =
   let handle_escape b = function
@@ -13,7 +8,7 @@ let lex s =
     | ('"' | '\\') as c -> Buffer.add_char b c
     | _ -> failwith "unrecognized escape sequence"
   in
-  let is_delim c = String.contains "()\"" c || Char.Ascii.is_white c in
+  let is_delim c = String.contains "()\";" c || Char.Ascii.is_white c in
   let rec aux i acc =
     if i >= String.length s then List.rev acc
     else
@@ -24,6 +19,7 @@ let lex s =
             incr j
           done;
           aux (!j + 1) acc
+      | ';' -> aux (i + 1) acc
       | '(' -> aux (i + 1) (LParen :: acc)
       | ')' -> aux (i + 1) (RParen :: acc)
       | '"' ->

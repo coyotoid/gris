@@ -21,12 +21,21 @@ type prim =
   | PrimShow
   | PrimPrint
 
-type thunk = ThPrim of prim
-type env = { data : value Stack.t; latent : thunk Stack.t Stack.t }
+type word_def = Infer.ty list * Infer.ty list * Parsing.tree
+type thunk = ThPrim of prim | ThWord of word_def
 
-let make_env () =
+type env = {
+  data : value Stack.t;
+  tenv : Infer.ty_env;
+  defs : (string, word_def) Hashtbl.t;
+  latent : thunk Stack.t Stack.t;
+}
+
+let make_env tenv =
   {
     data = Stack.create ();
+    tenv;
+    defs = Hashtbl.create 16;
     latent = Stack.of_seq (Seq.singleton (Stack.create ()));
   }
 
@@ -113,22 +122,34 @@ let do_prim env =
       | VStr s -> print_endline s
       | _ -> raise Mismatch)
 
-let unify_shape env (shape, _) =
+let unify_shape env (takes, _) =
   let shape_of_stk =
     Stack.to_seq env.data
-    |> Seq.take (List.length shape)
+    |> Seq.take (List.length takes)
     |> Seq.map ty_of_value |> List.of_seq
   in
-  unify shape shape_of_stk
+  unify takes shape_of_stk
+
+let reify_ty = function
+  | Infer.TyCon "Int" -> RInt
+  | Infer.TyCon "Str" -> RStr
+  | Infer.TyVar _ -> RAny
+  | t ->
+      failwith
+        (Printf.sprintf "type %s couldn't be reified" (Infer.string_of_ty t))
 
 let rec latent_check env =
   let lstk = Stack.top env.latent in
   match Stack.top_opt lstk with
   | Some (ThPrim p) ->
       if unify_shape env (prim_shape p) then (
-        ignore (Stack.pop lstk);
+        Stack.drop lstk;
         do_prim env p)
-      else ()
+  | Some (ThWord (takes, leaves, defn)) ->
+      if unify_shape env (List.map reify_ty takes, List.map reify_ty leaves)
+      then (
+        Stack.drop lstk;
+        interpret env defn)
   | None -> ()
 
 and with_latent_scope env fn =
@@ -138,26 +159,39 @@ and with_latent_scope env fn =
   latent_check env;
   if Stack.length ls > 0 then raise Dirty else Stack.drop env.latent
 
-let rec interpret : env -> Parsing.tree -> unit =
- fun env ->
-  let open Parsing in
-  let rec step = function
-    | TAtom (AInt i) -> Stack.push (VInt i) env.data
-    | TAtom (AString s) -> Stack.push (VStr s) env.data
-    | TAtom (AWord w) -> (
-        match prim_of_string_opt w with
+and interpret env =
+  let rec aux next =
+    let open Parsing in
+    match next with
+    | TAtom (AInt i) :: xs ->
+        Stack.push (VInt i) env.data;
+        aux xs
+    | TAtom (AString s) :: xs ->
+        Stack.push (VStr s) env.data;
+        aux xs
+    | TAtom (AWord "def") :: TAtom (AWord name) :: (TGroup _ as defn) :: xs ->
+        (match Hashtbl.find_opt env.tenv.sigs name with
+        | Some (takes, leaves) -> Hashtbl.add env.defs name (takes, leaves, defn)
+        | None -> failwith "should not happen");
+        aux xs
+    | TAtom (AWord w) :: xs ->
+        (match prim_of_string_opt w with
         | Some prim ->
             if prim_shape prim |> unify_shape env then do_prim env prim
             else Stack.push (ThPrim prim) (Stack.top env.latent)
-        | _ -> raise (Unknown_word w))
-    | TGroup _ as grp -> interpret env grp
-  and iter = function
+        | _ -> (
+            match Hashtbl.find_opt env.defs w with
+            | Some ((takes, leaves, defn) as d) ->
+                if
+                  unify_shape env
+                    (List.map reify_ty takes, List.map reify_ty leaves)
+                then aux [ defn ]
+                else Stack.push (ThWord d) (Stack.top env.latent)
+            | None -> raise (Unknown_word w)));
+        aux xs
+    | TGroup grp :: xs ->
+        with_latent_scope env (fun () -> aux grp);
+        aux xs
     | [] -> ()
-    | x :: xs ->
-        step x;
-        (match x with TAtom _ -> latent_check env | _ -> ());
-        iter xs
   in
-  function
-  | TGroup xs -> with_latent_scope env (fun () -> iter xs)
-  | x -> step x
+  Fun.compose aux List.singleton

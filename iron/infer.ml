@@ -2,10 +2,11 @@ exception Type_error of string
 exception Unknown_word of string
 
 type[@ocaml.unboxed] type_id = TypeId of int
-
-let int_of_type_id (TypeId id) = id
-
 type ty = TyVar of type_id | TyCon of string
+
+let string_of_ty = function
+  | TyCon n -> n
+  | TyVar (TypeId v) -> Printf.sprintf "'%d" v
 
 let ty_int = TyCon "Int"
 let ty_str = TyCon "Str"
@@ -13,11 +14,24 @@ let ty_str = TyCon "Str"
 type eff =
   ty list * ty list (* stored top-first: (a b c -- a) -> ([c; b; a], [a]) *)
 
-type ty_env = { vars : (type_id, ty) Hashtbl.t; mk_id : unit -> type_id }
+(* TODO: pretty-printing type variables in effects *)
+let string_of_eff (takes, leaves) =
+  let show_list = function
+    | [] -> "[]"
+    | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty xs) ^ "]"
+  in
+  show_list takes ^ " -> " ^ show_list leaves
+
+type ty_env = {
+  vars : (type_id, ty) Hashtbl.t;
+  sigs : (string, eff) Hashtbl.t;
+  mk_id : unit -> type_id;
+}
 
 let make_ty_env () : ty_env =
   {
     vars = Hashtbl.create 16;
+    sigs = Hashtbl.create 16;
     mk_id =
       (let state = ref 0 in
        fun () ->
@@ -46,27 +60,31 @@ let compose_type_env e1 e2 =
   in
   Hashtbl.add_seq e2.vars e1'
 
-let bind env v t =
+let bind env (TypeId id as v) t =
   let t = substitute_ty env t in
   if substitute_ty env (TyVar v) = t then ()
-  else if occurs env v t then raise (Type_error "occurrence check failed")
+  else if occurs env v t then
+    raise
+      (Type_error ("occurrence check failed for type var " ^ string_of_int id))
   else Hashtbl.add env.vars v t
 
-let rec unify env t1 t2 =
+let unify env t1 t2 =
   let t1 = substitute_ty env t1 in
   let t2 = substitute_ty env t2 in
-  let commute () = unify env t2 t1 in
   match (t1, t2) with
   | TyCon c1, TyCon c2 when String.equal c1 c2 -> ()
   | TyVar (TypeId v1), TyVar (TypeId v2) when Int.equal v1 v2 -> ()
-  | TyVar v, t -> bind env v t
-  | _, TyVar _ -> commute ()
-  | _ -> raise (Type_error "type mismatch")
+  | TyVar v, t | t, TyVar v -> bind env v t
+  | _ ->
+      raise
+        (Type_error
+           (Printf.sprintf "type mismatch: %s vs. %s" (string_of_ty t1)
+              (string_of_ty t2)))
 
 let unify_list env a b =
   match List.compare_lengths a b with
   | 0 -> List.iter2 (unify env) a b
-  | _ -> raise (Type_error "type mismatch")
+  | _ -> raise (Type_error "type list mismatch (should not happen?)")
 
 let instantiate_effect env ((takes, leaves) : eff) : eff =
   let map = Hashtbl.create 8 in
@@ -83,30 +101,32 @@ let instantiate_effect env ((takes, leaves) : eff) : eff =
   in
   (instantiate takes, instantiate leaves)
 
-let effect_of_primitive : Interpreter.prim -> eff =
-  let open Interpreter in
-  function
-  | PrimDup (* a -- a a *) ->
-      ([ TyVar (TypeId 0) ], [ TyVar (TypeId 0); TyVar (TypeId 0) ])
-  | PrimDrop (* a -- *) -> ([ TyVar (TypeId 0) ], [])
-  | PrimSwap (* a b -- b a *) ->
-      ( [ TyVar (TypeId 1); TyVar (TypeId 0) ],
-        [ TyVar (TypeId 0); TyVar (TypeId 1) ] )
-  | PrimBury (* a b c -- c a b *) ->
-      ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-        [ TyVar (TypeId 1); TyVar (TypeId 0); TyVar (TypeId 2) ] )
-  | PrimUnbury (* a b c -- b c a *) ->
-      ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-        [ TyVar (TypeId 0); TyVar (TypeId 2); TyVar (TypeId 1) ] )
-  | PrimAdd | PrimMul (* Int Int -- Int *) -> ([ ty_int; ty_int ], [ ty_int ])
-  | PrimConcat (* Str Str -- Str *) -> ([ ty_str; ty_str ], [ ty_str ])
-  | PrimPrint (* Str -- *) -> ([ ty_str ], [])
-  | PrimShow (* Int -- *) -> ([ ty_int ], [ ty_str ])
-
-let infer tree =
+let rec infer tree =
   let env = make_ty_env () in
   let stack = Stack.create () in
   let vars = Stack.create () in
+
+  let prims =
+    [
+      ("dup", ([ TyVar (TypeId 0) ], [ TyVar (TypeId 0); TyVar (TypeId 0) ]));
+      ("drop", ([ TyVar (TypeId 0) ], []));
+      ( "swap",
+        ( [ TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 0); TyVar (TypeId 1) ] ) );
+      ( "bury",
+        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 1); TyVar (TypeId 0); TyVar (TypeId 2) ] ) );
+      ( "unbury",
+        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 0); TyVar (TypeId 2); TyVar (TypeId 1) ] ) );
+      ("+", ([ ty_int; ty_int ], [ ty_int ]));
+      ("*", ([ ty_int; ty_int ], [ ty_int ]));
+      ("^", ([ ty_str; ty_str ], [ ty_str ]));
+      ("print", ([ ty_str ], []));
+      ("show", ([ ty_int ], [ ty_str ]));
+    ]
+  in
+  Hashtbl.add_seq env.sigs (List.to_seq prims);
 
   let ensure_args n =
     let deficit = n - Stack.length stack in
@@ -118,33 +138,41 @@ let infer tree =
       done
   in
 
-  let take_n n = Stack.to_seq stack |> Seq.take n |> List.of_seq in
-
-  let rec aux =
+  let rec aux' =
     let open Parsing in
     function
-    | Parsing.TGroup xs -> List.iter aux xs
-    | Parsing.TAtom x -> (
-        match x with
-        | AInt _ -> Stack.push ty_int stack
-        | AString _ -> Stack.push ty_str stack
-        | AWord w -> (
-            match Interpreter.prim_of_string_opt w with
-            | None -> raise (Unknown_word w)
-            | Some prim ->
-                let takes, leaves =
-                  instantiate_effect env (effect_of_primitive prim)
-                in
-                let arity = List.length takes in
-                ensure_args arity;
-                unify_list env takes (take_n arity);
-                for _ = 1 to arity do
-                  Stack.drop stack
-                done;
-                let takes' = List.rev_map (substitute_ty env) leaves in
-                Stack.add_seq stack (List.to_seq takes')))
+    | TAtom (AWord "def") :: TAtom (AWord _name) :: TGroup _defn :: xs ->
+        let env', (takes, leaves) = infer (TGroup _defn) in
+        compose_type_env env env';
+        Hashtbl.add env.sigs _name (takes, leaves);
+        aux' xs
+    | TAtom (AInt _) :: xs ->
+        Stack.push ty_int stack;
+        aux' xs
+    | TAtom (AString _) :: xs ->
+        Stack.push ty_str stack;
+        aux' xs
+    | TAtom (AWord w) :: xs ->
+        (match Hashtbl.find_opt env.sigs w with
+        | None -> raise (Unknown_word w)
+        | Some eff ->
+            let takes, leaves = instantiate_effect env eff in
+            let arity = List.length takes in
+            ensure_args arity;
+            unify_list env takes
+              (Stack.to_seq stack |> Seq.take arity |> List.of_seq);
+            for _ = 1 to arity do
+              Stack.drop stack
+            done;
+            let takes' = List.rev_map (substitute_ty env) leaves in
+            Stack.add_seq stack (List.to_seq takes'));
+        aux' xs
+    | TGroup x :: xs ->
+        aux' x;
+        aux' xs
+    | [] -> ()
   in
-  aux tree;
+  aux' [ tree ];
   let inputs =
     Stack.to_seq vars
     |> Seq.map (fun var -> substitute_ty env (TyVar var))
@@ -153,4 +181,4 @@ let infer tree =
   let outputs =
     List.map (substitute_ty env) (Stack.to_seq stack |> List.of_seq)
   in
-  (inputs, outputs)
+  (env, (inputs, outputs))
