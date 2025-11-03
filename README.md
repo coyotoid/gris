@@ -11,4 +11,8 @@ catlang experiments (warning: awful code)
 
 ## to do (`iron`)
 
-- type inference (needed for word definitions)
+- [x] type inference (needed for word definitions)
+  - still WIP, doesn't do the latent stack stuff the interpreter does, so the
+    inferred effect for non-postfix code is wrong
+- [x] word definitions
+- [ ] latent stack transformation (lift from runtime to type checking)
