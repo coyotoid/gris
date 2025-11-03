@@ -1,0 +1,9 @@
+# should infer as [a b] -> [b]
+def nip (swap drop)
+
+# should infer as [a b] -> [a b a]
+def over (swap dup bury)
+
+# should infer as [a b] -> [b a b]
+# FIX: currently infers as [a b] -> [b a a]
+def tuck (dup bury)

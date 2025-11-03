@@ -54,7 +54,7 @@ type ty_env = {
 
 let make_ty_env () : ty_env =
   {
-    vars = Hashtbl.create 16;
+    vars = Hashtbl.create 256;
     sigs = Hashtbl.create 16;
     mk_id =
       (let state = ref 0 in
@@ -111,7 +111,7 @@ let unify_list env a b =
   | _ -> raise (Type_error "type list mismatch (should not happen?)")
 
 let instantiate_effect env (takes, leaves) =
-  let map = Hashtbl.create 8 in
+  let map = Hashtbl.create 16 in
   let fresh v =
     match Hashtbl.find_opt map v with
     | Some id -> id

@@ -1,0 +1,4 @@
+def addmul (bury + *);
+def . (show print);
+
+1 2 3 addmul .
