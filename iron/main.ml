@@ -5,7 +5,16 @@ let () =
     let tokens = Lexing.lex code in
     let tree = Parsing.parse tokens in
     let ty_env, eff = Infer.infer tree in
-    Printf.eprintf "Inferred effect: %s\n" (Infer.string_of_eff eff);
+    (match eff with
+    | [], [] -> ()
+    | _, _ -> Printf.eprintf "Inferred effect: %s\n" (Infer.string_of_eff_pretty eff));
+    prerr_endline "User definitions:";
+    Hashtbl.iter
+      (fun name eff ->
+        match Interpreter.prim_of_string_opt name with
+        | None -> Printf.eprintf "    %s : %s\n" name (Infer.string_of_eff_pretty eff)
+        | Some _ -> ())
+      ty_env.sigs;
     let env = Interpreter.make_env ty_env in
     Out_channel.flush stderr;
     try

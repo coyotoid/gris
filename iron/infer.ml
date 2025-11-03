@@ -14,11 +14,35 @@ let ty_str = TyCon "Str"
 type eff =
   ty list * ty list (* stored top-first: (a b c -- a) -> ([c; b; a], [a]) *)
 
-(* TODO: pretty-printing type variables in effects *)
 let string_of_eff (takes, leaves) =
   let show_list = function
     | [] -> "[]"
     | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty xs) ^ "]"
+  in
+  show_list takes ^ " -> " ^ show_list leaves
+
+let string_of_eff_pretty (takes, leaves) =
+  let collect_vars acc tys =
+    let aux acc = function
+      | TyCon _ -> acc
+      | TyVar i -> if List.mem i acc then acc else i :: acc
+    in
+    List.fold_left aux acc tys
+  in
+  let name_of_ix i =
+    let base = Char.chr (Char.code 'a' + (i mod 26)) in
+    if i < 26 then String.make 1 base else Printf.sprintf "%c%d" base (i / 26)
+  in
+  let ids = collect_vars (collect_vars [] takes) leaves in
+  let vars = Hashtbl.create (List.length ids) in
+  List.iteri (fun idx id -> Hashtbl.add vars id (name_of_ix idx)) ids;
+  let string_of_ty_pretty = function
+    | TyVar id -> Hashtbl.find vars id
+    | t -> string_of_ty t
+  in
+  let show_list = function
+    | [] -> "[]"
+    | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty_pretty xs) ^ "]"
   in
   show_list takes ^ " -> " ^ show_list leaves
 
@@ -86,7 +110,7 @@ let unify_list env a b =
   | 0 -> List.iter2 (unify env) a b
   | _ -> raise (Type_error "type list mismatch (should not happen?)")
 
-let instantiate_effect env ((takes, leaves) : eff) : eff =
+let instantiate_effect env (takes, leaves) =
   let map = Hashtbl.create 8 in
   let fresh v =
     match Hashtbl.find_opt map v with
@@ -96,10 +120,8 @@ let instantiate_effect env ((takes, leaves) : eff) : eff =
         Hashtbl.add map v id;
         id
   in
-  let instantiate =
-    List.map (function TyCon _ as t -> t | TyVar v -> TyVar (fresh v))
-  in
-  (instantiate takes, instantiate leaves)
+  let aux = List.map (function TyVar v -> TyVar (fresh v) | t -> t) in
+  (aux takes, aux leaves)
 
 let rec infer tree =
   let env = make_ty_env () in
