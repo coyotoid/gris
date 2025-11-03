@@ -123,8 +123,7 @@ let instantiate_effect env (takes, leaves) =
   let aux = List.map (function TyVar v -> TyVar (fresh v) | t -> t) in
   (aux takes, aux leaves)
 
-let rec infer tree =
-  let env = make_ty_env () in
+let rec infer env tree =
   let stack = Stack.create () in
   let vars = Stack.create () in
 
@@ -163,10 +162,9 @@ let rec infer tree =
   let rec aux' =
     let open Parsing in
     function
-    | TAtom (AWord "def") :: TAtom (AWord _name) :: TGroup _defn :: xs ->
-        let env', (takes, leaves) = infer (TGroup _defn) in
-        compose_type_env env env';
-        Hashtbl.add env.sigs _name (takes, leaves);
+    | TAtom (AWord "def") :: TAtom (AWord name) :: TGroup defn :: xs ->
+        let takes, leaves = infer env (TGroup defn) in
+        Hashtbl.add env.sigs name (takes, leaves);
         aux' xs
     | TAtom (AInt _) :: xs ->
         Stack.push ty_int stack;
@@ -203,4 +201,4 @@ let rec infer tree =
   let outputs =
     List.map (substitute_ty env) (Stack.to_seq stack |> List.of_seq)
   in
-  (env, (inputs, outputs))
+  (inputs, outputs)
