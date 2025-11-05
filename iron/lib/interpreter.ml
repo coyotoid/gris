@@ -159,7 +159,7 @@ and with_latent_scope env fn =
   latent_check env;
   if Stack.length ls > 0 then raise Dirty else Stack.drop env.latent
 
-and interpret env =
+and interpret env expr =
   let rec aux next =
     let open Parsing in
     match next with
@@ -194,4 +194,4 @@ and interpret env =
         aux xs
     | [] -> ()
   in
-  Fun.compose aux List.singleton
+  aux [ expr ]

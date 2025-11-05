@@ -139,16 +139,16 @@ let prim_effect name : eff option =
   | _ -> None
 
 let rec infer env tree =
-  let stack = ref [] in
-  let vars = ref [] in
+  let stack = CCDeque.create () in
+  let vars = CCDeque.create () in
 
   let ensure_args n =
-    let deficit = n - List.length !stack in
+    let deficit = n - CCDeque.length stack in
     if deficit > 0 then
       for _ = 1 to deficit do
         let id = env.mk_id () in
-        stack := !stack @ [ TyVar id ];
-        vars := !vars @ [ id ]
+        CCDeque.push_back stack (TyVar id);
+        CCDeque.push_back vars id
       done
   in
 
@@ -156,12 +156,16 @@ let rec infer env tree =
     let takes, leaves = instantiate_effect env eff in
     let arity = List.length takes in
     ensure_args arity;
-    unify_list env takes (List.take arity !stack);
-    for _ = 1 to arity do
-      stack := List.tl !stack
-    done;
-    let leaves' = List.map (substitute_ty env) leaves in
-    stack := leaves' @ !stack
+    let args =
+      let rec collect acc n =
+        if n = 0 then List.rev acc
+        else collect (CCDeque.take_front stack :: acc) (n - 1)
+      in
+      collect [] arity
+    in
+    unify_list env takes args;
+    let leaves' = List.rev_map (substitute_ty env) leaves in
+    CCDeque.append_front ~into:stack (CCDeque.of_list leaves')
   in
 
   let rec aux' =
@@ -172,10 +176,10 @@ let rec infer env tree =
         Hashtbl.add env.sigs name (takes, leaves);
         aux' xs
     | EAtom (AInt _) :: xs ->
-        stack := ty_int :: !stack;
+        CCDeque.push_front stack ty_int;
         aux' xs
     | EAtom (AString _) :: xs ->
-        stack := ty_str :: !stack;
+        CCDeque.push_front stack ty_str;
         aux' xs
     | EAtom (AWord w) :: xs ->
         (match prim_effect w with
@@ -191,25 +195,27 @@ let rec infer env tree =
     | [] -> ()
   in
   aux' [ tree ];
-  let inputs = List.map (fun var -> substitute_ty env (TyVar var)) !vars in
-  let outputs = List.map (substitute_ty env) !stack in
+  let inputs =
+    CCDeque.to_list vars |> List.map (fun var -> substitute_ty env (TyVar var))
+  in
+  let outputs = CCDeque.to_list stack |> List.map (substitute_ty env) in
   (inputs, outputs)
 
-(* combinator test harness *)
-let%expect_test "nip (swap drop)" =
-  let tree = Lexing.lex "swap drop" |> Parsing.parse in
-  let eff = infer (make_ty_env ()) tree in
-  print_endline (string_of_eff_pretty eff);
-  [%expect {| [a b] -> [b] |}]
+let%expect_test "combinator tests" =
+  let run_test_prog p =
+    let tree = Lexing.lex p |> Parsing.parse in
+    let eff = infer (make_ty_env ()) tree in
+    print_endline (string_of_eff_pretty eff)
+  in
 
-let%expect_test "over (swap dup bury)" =
-  let tree = Lexing.lex "swap dup bury" |> Parsing.parse in
-  let eff = infer (make_ty_env ()) tree in
-  print_endline (string_of_eff_pretty eff);
-  [%expect {| [a b] -> [a b a] |}]
+  run_test_prog "swap drop";
+  [%expect {| [a b] -> [b] |}];
 
-let%expect_test "tuck (dup bury)" =
-  let tree = Lexing.lex "dup bury" |> Parsing.parse in
-  let eff = infer (make_ty_env ()) tree in
-  print_endline (string_of_eff_pretty eff);
-  [%expect {| [a b] -> [b a b] |}]
+  run_test_prog "swap dup bury";
+  [%expect {| [a b] -> [a b a] |}];
+
+  run_test_prog "dup bury";
+  [%expect {| [a b] -> [b a b] |}];
+
+  run_test_prog "drop dup";
+  [%expect {| [a b] -> [a a] |}]
