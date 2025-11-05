@@ -22,6 +22,11 @@ i am working on getting this done, i just need to figure out how :-)
 ### to-do
 
 - [ ] finish the type checker
-- [ ] rework lexer and parser... perhaps?
-  - would like to have a proper expression tree as opposed to working directly
-    on a s-exp
+- [x] rework lexer and parser... perhaps?
+  - [ ] done, but still needs some work, especially since compiling the parser
+    throws some warnings (baby's first parser yay \^_\^)
+
+    ```
+    Warning: one state has reduce/reduce conflicts.
+    Warning: one reduce/reduce conflict was arbitrarily resolved.
+    ```

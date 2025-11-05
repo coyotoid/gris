@@ -18,8 +18,7 @@ open Ast
 
 %%
 
-let term :=
-  | word | lit | group | quote
+let term := word | lit | group | quote
 
 top_expr:
   | d=def; EOF { d }
