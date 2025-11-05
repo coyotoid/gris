@@ -11,7 +11,7 @@ let string_of_value = function
   | VInt i -> string_of_int i
   | VStr s -> "\"" ^ String.escaped s ^ "\""
 
-type word_def = reified_ty list * reified_ty list * Parsing.expr
+type word_def = reified_ty list * reified_ty list * Ast.expr
 type thunk = ThPrim of primitive | ThWord of word_def
 
 type env = {
@@ -142,37 +142,36 @@ and with_latent_scope env fn =
 
 and interpret env expr =
   let rec aux next =
-    let open Parsing in
+    let open Ast in
     match next with
-    | EAtom (AInt i) :: xs ->
+    | EId -> ()
+    | ECat (e1, e2) ->
+      aux e1;
+      aux e2;
+    | EPush (AInt i) ->
         Stack.push (VInt i) env.data;
-        aux xs
-    | EAtom (AString s) :: xs ->
+    | EPush (AStr s) ->
         Stack.push (VStr s) env.data;
-        aux xs
-    | EAtom (AWord "def") :: EAtom (AWord name) :: (EGroup _ as defn) :: xs ->
-        (match Hashtbl.find_opt env.tenv.sigs name with
-        | Some (takes, leaves) ->
-            Hashtbl.add env.defs name
-              (List.map reify_ty takes, List.map reify_ty leaves, defn)
-        | None -> failwith "should not happen");
-        aux xs
-    | EAtom (AWord w) :: xs ->
-        (match primitive_of_string w with
+    | ECall name ->
+        (match primitive_of_string name with
         | Some prim ->
             if unify_shape env (shape_of_primitive prim) then
               run_primitive env prim
             else Stack.push (ThPrim prim) (Stack.top env.latent)
         | _ -> (
-            match Hashtbl.find_opt env.defs w with
+            match Hashtbl.find_opt env.defs name with
             | Some ((takes, leaves, defn) as d) ->
-                if unify_shape env (takes, leaves) then aux [ defn ]
+                if unify_shape env (takes, leaves) then aux defn
                 else Stack.push (ThWord d) (Stack.top env.latent)
-            | None -> raise (Unknown_word w)));
-        aux xs
-    | EGroup grp :: xs ->
+            | None -> raise (Unknown_word name)));
+    | EDef (name, def) ->
+        (match Hashtbl.find_opt env.tenv.sigs name with
+        | Some (takes, leaves) ->
+            Hashtbl.add env.defs name
+              (List.map reify_ty takes, List.map reify_ty leaves, def)
+        | None -> failwith "should not happen");
+    | EGroup grp ->
         with_latent_scope env (fun () -> aux grp);
-        aux xs
-    | [] -> ()
+    | EQuote _ -> failwith "unimplemented"
   in
-  aux [ expr ]
+  aux expr

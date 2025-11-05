@@ -2,13 +2,15 @@ open Iron
 
 let () =
   if Array.length Sys.argv < 2 then
-    Printf.eprintf "usage: %s program...\n" (Sys.argv.(0))
+    Printf.eprintf "usage: %s program...\n" Sys.argv.(0)
   else
-    let code = String.concat " " (Array.to_seq Sys.argv |> Seq.drop 1 |> List.of_seq) in
-    let tokens = Lexing.lex code in
-    let tree = Parsing.parse tokens in
+    let code =
+      String.concat " " (Array.to_seq Sys.argv |> Seq.drop 1 |> List.of_seq)
+    in
+    let lexer = Lexing.from_string code in
+    let expr = Parser.top_expr Lexer.token lexer in
     let tenv = Infer.make_ty_env () in
-    let eff = Infer.infer tenv tree in
+    let eff = Infer.infer tenv expr in
 
     (* Print inferred effects *)
     (match eff with
@@ -28,7 +30,7 @@ let () =
     let env = Interpreter.make_env tenv in
     Out_channel.flush stderr;
     try
-      Interpreter.interpret env tree;
+      Interpreter.interpret env expr;
       Out_channel.flush_all ();
       if Stack.length env.data > 0 then
         Printf.eprintf "Resulting stack: [%s]\n"

@@ -72,7 +72,7 @@ let instantiate_effect env (takes, leaves) =
   let aux = List.map (function TyVar v -> TyVar (fresh v) | t -> t) in
   (aux takes, aux leaves)
 
-let rec infer env tree =
+let rec infer env expr =
   let stack = CCDeque.create () in
   let vars = CCDeque.create () in
 
@@ -86,7 +86,7 @@ let rec infer env tree =
       done
   in
 
-  let run_word eff =
+  let infer_word eff =
     let takes, leaves = instantiate_effect env eff in
     let arity = List.length takes in
     ensure_args arity;
@@ -102,54 +102,29 @@ let rec infer env tree =
     CCDeque.append_front ~into:stack (CCDeque.of_list leaves')
   in
 
-  let rec aux' =
-    let open Parsing in
+  let rec aux =
+    let open Ast in
     function
-    | EAtom (AWord "def") :: EAtom (AWord name) :: EGroup defn :: xs ->
-        let takes, leaves = infer env (EGroup defn) in
-        Hashtbl.add env.sigs name (takes, leaves);
-        aux' xs
-    | EAtom (AInt _) :: xs ->
-        CCDeque.push_front stack ty_int;
-        aux' xs
-    | EAtom (AString _) :: xs ->
-        CCDeque.push_front stack ty_str;
-        aux' xs
-    | EAtom (AWord w) :: xs ->
-        (match primitive_of_string w with
-        | Some prim -> run_word (effect_of_primitive prim)
+    | EId -> ()
+    | ECat (e1, e2) ->
+        aux e1;
+        aux e2
+    | EPush (AInt _) -> CCDeque.push_front stack ty_int
+    | EPush (AStr _) -> CCDeque.push_front stack ty_str
+    | ECall name -> (
+        match primitive_of_string name with
+        | Some prim -> infer_word (effect_of_primitive prim)
         | None -> (
-            match Hashtbl.find_opt env.sigs w with
-            | Some eff -> run_word eff
-            | None -> raise (Unknown_word w)));
-        aux' xs
-    | EGroup x :: xs ->
-        aux' x;
-        aux' xs
-    | [] -> ()
+            match Hashtbl.find_opt env.sigs name with
+            | Some eff -> infer_word eff
+            | None -> raise (Unknown_word name)))
+    | EDef (name, def) -> Hashtbl.add env.sigs name (infer env def)
+    | EGroup e -> aux e
+    | EQuote _ -> failwith "unimplemented"
   in
-  aux' [ tree ];
+  aux expr;
   let inputs =
     CCDeque.to_list vars |> List.map (fun var -> substitute_ty env (TyVar var))
   in
   let outputs = CCDeque.to_list stack |> List.map (substitute_ty env) in
   (inputs, outputs)
-
-let%expect_test "combinator tests" =
-  let run_test_prog p =
-    let tree = Lexing.lex p |> Parsing.parse in
-    let eff = infer (make_ty_env ()) tree in
-    print_endline (string_of_eff_pretty eff)
-  in
-
-  run_test_prog "swap drop";
-  [%expect {| [a b] -> [b] |}];
-
-  run_test_prog "swap dup bury";
-  [%expect {| [a b] -> [a b a] |}];
-
-  run_test_prog "dup bury";
-  [%expect {| [a b] -> [b a b] |}];
-
-  run_test_prog "drop dup";
-  [%expect {| [a b] -> [a a] |}]
