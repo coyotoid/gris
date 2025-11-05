@@ -146,8 +146,8 @@ let rec infer env tree =
     if deficit > 0 then
       for _ = 1 to deficit do
         let id = env.mk_id () in
-        stack := TyVar id :: !stack;
-        vars := id :: !vars
+        stack := !stack @ [ TyVar id ];
+        vars := !vars @ [ id ]
       done
   in
 

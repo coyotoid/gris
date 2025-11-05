@@ -5,5 +5,4 @@ def nip (swap drop)
 def over (swap dup bury)
 
 # should infer as [a b] -> [b a b]
-# FIX: currently infers as [a b] -> [b a a]
 def tuck (dup bury)
