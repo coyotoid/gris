@@ -2,13 +2,9 @@
 
 catlang experiments (warning: awful code)
 
-## steel
-
-`steel` is the current interpreter draft
-
 ## iron
 
-`iron` is the second interpreter draft i've written
+`iron` is the current interpreter draft
 
     $ dune exec -- ./iron/main.exe 'def over (swap dup bury); def nip (swap drop); 3 4 over + *'
     Inferred effect: [] -> [Int]
@@ -17,5 +13,8 @@ catlang experiments (warning: awful code)
         over : [a b] -> [a b a]
     Resulting stack: [21]
 
-the type checker is broken though, and doesn't work with the latent stack like
-the interpreter does
+the type checker is still a work in progress, as it needs to be reworked to use
+the concept of the latent stack as the interpreter does, so programs that would
+execute correctly will have their effect incorrectly inferred.
+
+i am working on getting this done, i just need to figure out how :-)
