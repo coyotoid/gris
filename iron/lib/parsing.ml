@@ -14,12 +14,12 @@ let string_of_atom = function
 type expr = EGroup of expr list | EAtom of atom
 
 let rec string_of_expr ?(tl = true) xs =
-  let tree_list =
+  let show_group =
     Fun.compose (String.concat " ") (List.map (string_of_expr ~tl:false))
   in
   match xs with
-  | EGroup xs when tl -> tree_list xs
-  | EGroup xs -> "(" ^ tree_list xs ^ ")"
+  | EGroup xs when tl -> show_group xs
+  | EGroup xs -> "(" ^ show_group xs ^ ")"
   | EAtom a -> string_of_atom a
 
 let parse tokens =

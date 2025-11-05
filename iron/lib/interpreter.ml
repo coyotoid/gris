@@ -39,8 +39,8 @@ let reify_ty =
       failwith (Printf.sprintf "type %s couldn't be reified" (string_of_ty t))
 
 let shape_of_primitive prim =
-  let t, l = effect_of_primitive prim in
-  (List.map reify_ty t, List.map reify_ty l)
+  let reify_all = List.map reify_ty in
+  Pair.map reify_all reify_all (effect_of_primitive prim)
 
 let ty_of_value = function VInt _ -> RInt | VStr _ -> RStr
 
@@ -53,7 +53,7 @@ let unify a b =
 
 let unify_list a b = List.compare_lengths a b == 0 && List.for_all2 unify a b
 
-let do_prim env =
+let run_primitive env =
   let arith_op op stk =
     let b = Stack.pop stk in
     let a = Stack.pop stk in
@@ -126,7 +126,7 @@ let rec latent_check env =
   | Some (ThPrim p) ->
       if unify_shape env (shape_of_primitive p) then (
         Stack.drop lstk;
-        do_prim env p)
+        run_primitive env p)
   | Some (ThWord (takes, leaves, defn)) ->
       if unify_shape env (takes, leaves) then (
         Stack.drop lstk;
@@ -160,7 +160,8 @@ and interpret env expr =
     | EAtom (AWord w) :: xs ->
         (match primitive_of_string w with
         | Some prim ->
-            if shape_of_primitive prim |> unify_shape env then do_prim env prim
+            if unify_shape env (shape_of_primitive prim) then
+              run_primitive env prim
             else Stack.push (ThPrim prim) (Stack.top env.latent)
         | _ -> (
             match Hashtbl.find_opt env.defs w with
