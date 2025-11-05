@@ -76,14 +76,6 @@ let occurs env (TypeId v) t =
   | TyVar (TypeId var') -> Int.equal v var'
   | _ -> false
 
-let compose_type_env e1 e2 =
-  let e1' =
-    Hashtbl.to_seq e1.vars
-    |> Seq.map (fun (v, t) -> (v, substitute_ty e2 t))
-    |> Seq.filter (fun (v, _) -> not (Hashtbl.mem e2.vars v))
-  in
-  Hashtbl.add_seq e2.vars e1'
-
 let bind env (TypeId id as v) t =
   let t = substitute_ty env t in
   if substitute_ty env (TyVar v) = t then ()
@@ -124,8 +116,8 @@ let instantiate_effect env (takes, leaves) =
   (aux takes, aux leaves)
 
 let rec infer env tree =
-  let stack = Stack.create () in
-  let vars = Stack.create () in
+  let stack = ref [] in
+  let vars = ref [] in
 
   let prims =
     [
@@ -150,55 +142,69 @@ let rec infer env tree =
   Hashtbl.add_seq env.sigs (List.to_seq prims);
 
   let ensure_args n =
-    let deficit = n - Stack.length stack in
+    let deficit = n - List.length !stack in
     if deficit > 0 then
       for _ = 1 to deficit do
         let id = env.mk_id () in
-        Stack.push (TyVar id) stack;
-        Stack.push id vars
+        stack := TyVar id :: !stack;
+        vars := id :: !vars
       done
   in
 
   let rec aux' =
     let open Parsing in
     function
-    | TAtom (AWord "def") :: TAtom (AWord name) :: TGroup defn :: xs ->
-        let takes, leaves = infer env (TGroup defn) in
+    | EAtom (AWord "def") :: EAtom (AWord name) :: EGroup defn :: xs ->
+        let takes, leaves = infer env (EGroup defn) in
         Hashtbl.add env.sigs name (takes, leaves);
         aux' xs
-    | TAtom (AInt _) :: xs ->
-        Stack.push ty_int stack;
+    | EAtom (AInt _) :: xs ->
+        stack := ty_int :: !stack;
         aux' xs
-    | TAtom (AString _) :: xs ->
-        Stack.push ty_str stack;
+    | EAtom (AString _) :: xs ->
+        stack := ty_str :: !stack;
         aux' xs
-    | TAtom (AWord w) :: xs ->
-        (match Hashtbl.find_opt env.sigs w with
+    | EAtom (AWord w) :: xs -> (
+        match Hashtbl.find_opt env.sigs w with
         | None -> raise (Unknown_word w)
         | Some eff ->
             let takes, leaves = instantiate_effect env eff in
             let arity = List.length takes in
             ensure_args arity;
-            unify_list env takes
-              (Stack.to_seq stack |> Seq.take arity |> List.of_seq);
+            unify_list env takes (List.take arity !stack);
             for _ = 1 to arity do
-              Stack.drop stack
+              match !stack with
+              | [] -> failwith "really shouldn't happen"
+              | _ :: xs -> stack := xs
             done;
-            let takes' = List.rev_map (substitute_ty env) leaves in
-            Stack.add_seq stack (List.to_seq takes'));
-        aux' xs
-    | TGroup x :: xs ->
+            let leaves' = List.map (substitute_ty env) leaves in
+            stack := leaves' @ !stack;
+            aux' xs)
+    | EGroup x :: xs ->
         aux' x;
         aux' xs
     | [] -> ()
   in
   aux' [ tree ];
-  let inputs =
-    Stack.to_seq vars
-    |> Seq.map (fun var -> substitute_ty env (TyVar var))
-    |> List.of_seq
-  in
-  let outputs =
-    List.map (substitute_ty env) (Stack.to_seq stack |> List.of_seq)
-  in
+  let inputs = !vars |> List.map (fun var -> substitute_ty env (TyVar var)) in
+  let outputs = List.map (substitute_ty env) !stack in
   (inputs, outputs)
+
+(* combinator test harness *)
+let%expect_test "nip (swap drop)" =
+  let tree = Lexing.lex "swap drop" |> Parsing.parse in
+  let eff = infer (make_ty_env ()) tree in
+  print_endline (string_of_eff_pretty eff);
+  [%expect {| [a b] -> [b] |}]
+
+let%expect_test "over (swap dup bury)" =
+  let tree = Lexing.lex "swap dup bury" |> Parsing.parse in
+  let eff = infer (make_ty_env ()) tree in
+  print_endline (string_of_eff_pretty eff);
+  [%expect {| [a b] -> [a b a] |}]
+
+let%expect_test "tuck (dup bury)" =
+  let tree = Lexing.lex "dup bury" |> Parsing.parse in
+  let eff = infer (make_ty_env ()) tree in
+  print_endline (string_of_eff_pretty eff);
+  [%expect {| [a b] -> [b a b] |}]

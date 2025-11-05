@@ -21,7 +21,7 @@ type prim =
   | PrimShow
   | PrimPrint
 
-type word_def = Infer.ty list * Infer.ty list * Parsing.tree
+type word_def = Infer.ty list * Infer.ty list * Parsing.expr
 type thunk = ThPrim of prim | ThWord of word_def
 
 type env = {
@@ -163,18 +163,18 @@ and interpret env =
   let rec aux next =
     let open Parsing in
     match next with
-    | TAtom (AInt i) :: xs ->
+    | EAtom (AInt i) :: xs ->
         Stack.push (VInt i) env.data;
         aux xs
-    | TAtom (AString s) :: xs ->
+    | EAtom (AString s) :: xs ->
         Stack.push (VStr s) env.data;
         aux xs
-    | TAtom (AWord "def") :: TAtom (AWord name) :: (TGroup _ as defn) :: xs ->
+    | EAtom (AWord "def") :: EAtom (AWord name) :: (EGroup _ as defn) :: xs ->
         (match Hashtbl.find_opt env.tenv.sigs name with
         | Some (takes, leaves) -> Hashtbl.add env.defs name (takes, leaves, defn)
         | None -> failwith "should not happen");
         aux xs
-    | TAtom (AWord w) :: xs ->
+    | EAtom (AWord w) :: xs ->
         (match prim_of_string_opt w with
         | Some prim ->
             if prim_shape prim |> unify_shape env then do_prim env prim
@@ -189,7 +189,7 @@ and interpret env =
                 else Stack.push (ThWord d) (Stack.top env.latent)
             | None -> raise (Unknown_word w)));
         aux xs
-    | TGroup grp :: xs ->
+    | EGroup grp :: xs ->
         with_latent_scope env (fun () -> aux grp);
         aux xs
     | [] -> ()

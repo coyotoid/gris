@@ -11,16 +11,16 @@ let string_of_atom = function
   | AString s -> "\"" ^ String.escaped s ^ "\""
   | AWord w -> w
 
-type tree = TGroup of tree list | TAtom of atom
+type expr = EGroup of expr list | EAtom of atom
 
-let rec string_of_tree ?(tl = true) xs =
+let rec string_of_expr ?(tl = true) xs =
   let tree_list =
-    Fun.compose (String.concat " ") (List.map (string_of_tree ~tl:false))
+    Fun.compose (String.concat " ") (List.map (string_of_expr ~tl:false))
   in
   match xs with
-  | TGroup xs when tl -> tree_list xs
-  | TGroup xs -> "(" ^ tree_list xs ^ ")"
-  | TAtom a -> string_of_atom a
+  | EGroup xs when tl -> tree_list xs
+  | EGroup xs -> "(" ^ tree_list xs ^ ")"
+  | EAtom a -> string_of_atom a
 
 let parse tokens =
   let parse_nesting =
@@ -36,15 +36,15 @@ let parse tokens =
     aux 0 []
   in
   let rec parse_group tokens =
-    match parse_root tokens [] with next, expr -> RNext (next, TGroup expr)
+    match parse_root tokens [] with next, expr -> RNext (next, EGroup expr)
   and parse_word tokens =
     match tokens with
     | [] -> RDone
     | LParen :: xs -> parse_group xs
     | RParen :: xs -> RProduce xs
-    | String s :: xs -> RNext (xs, TAtom (AString s))
-    | Int i :: xs -> RNext (xs, TAtom (AInt i))
-    | Word w :: xs -> RNext (xs, TAtom (AWord w))
+    | String s :: xs -> RNext (xs, EAtom (AString s))
+    | Int i :: xs -> RNext (xs, EAtom (AInt i))
+    | Word w :: xs -> RNext (xs, EAtom (AWord w))
   and parse_root tokens acc =
     match parse_word tokens with
     | RDone -> (tokens, List.rev acc)
@@ -52,6 +52,6 @@ let parse tokens =
     | RNext (iter, sexp) -> parse_root iter (sexp :: acc)
   in
   match parse_nesting tokens with
-  | [] -> TGroup []
+  | [] -> EGroup []
   | x :: _ when not (Int.equal x 0) -> raise Malformed_input
-  | _ -> TGroup (snd (parse_root tokens []))
+  | _ -> EGroup (snd (parse_root tokens []))

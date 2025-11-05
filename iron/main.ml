@@ -1,3 +1,5 @@
+open Iron
+
 let () =
   if Array.length Sys.argv < 2 then Printf.eprintf "give me some code pls\n"
   else

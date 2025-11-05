@@ -2,7 +2,13 @@
 
 catlang experiments (warning: awful code)
 
-`iron` is the current interpreter draft (`mini.ml` was the first one I made)
+## steel
+
+`steel` is the current interpreter draft
+
+## iron
+
+`iron` is the second interpreter draft i've written
 
     $ dune exec -- ./iron/main.exe 'def over (swap dup bury); def nip (swap drop); 3 4 over + *'
     Inferred effect: [] -> [Int]
@@ -11,10 +17,5 @@ catlang experiments (warning: awful code)
         over : [a b] -> [a b a]
     Resulting stack: [21]
 
-## to do (`iron`)
-
-- [x] type inference (needed for word definitions)
-  - still WIP, doesn't do the latent stack stuff the interpreter does, so the
-    inferred effect for non-postfix code is wrong
-- [x] word definitions
-- [ ] latent stack transformation (lift from runtime to type checking)
+the type checker is broken though, and doesn't work with the latent stack like
+the interpreter does
