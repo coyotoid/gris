@@ -1,25 +1,30 @@
 open Iron
 
 let () =
-  if Array.length Sys.argv < 2 then Printf.eprintf "give me some code pls\n"
+  if Array.length Sys.argv < 2 then
+    Printf.eprintf "usage: %s program...\n" (Sys.argv.(0))
   else
-    let code = Sys.argv.(1) in
+    let code = String.concat " " (Array.to_seq Sys.argv |> Seq.drop 1 |> List.of_seq) in
     let tokens = Lexing.lex code in
     let tree = Parsing.parse tokens in
     let tenv = Infer.make_ty_env () in
     let eff = Infer.infer tenv tree in
+
+    (* Print inferred effects *)
     (match eff with
     | [], [] -> ()
     | _, _ ->
         Printf.eprintf "Inferred effect: %s\n" (Infer.string_of_eff_pretty eff));
-    prerr_endline "User definitions:";
-    Hashtbl.iter
-      (fun name eff ->
-        match Interpreter.prim_of_string_opt name with
-        | None ->
-            Printf.eprintf "    %s : %s\n" name (Infer.string_of_eff_pretty eff)
-        | Some _ -> ())
-      tenv.sigs;
+
+    (* Print user definitions with their inferred effects *)
+    if Hashtbl.length tenv.sigs <> 0 then (
+      prerr_endline "User definitions:";
+      Hashtbl.iter
+        (fun name eff ->
+          Printf.eprintf "    %s : %s\n" name (Infer.string_of_eff_pretty eff))
+        tenv.sigs);
+
+    (* Execute the code *)
     let env = Interpreter.make_env tenv in
     Out_channel.flush stderr;
     try

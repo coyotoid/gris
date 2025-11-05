@@ -115,31 +115,32 @@ let instantiate_effect env (takes, leaves) =
   let aux = List.map (function TyVar v -> TyVar (fresh v) | t -> t) in
   (aux takes, aux leaves)
 
+let prim_effect name : eff option =
+  match name with
+  | "dup" -> Some ([ TyVar (TypeId 0) ], [ TyVar (TypeId 0); TyVar (TypeId 0) ])
+  | "drop" -> Some ([ TyVar (TypeId 0) ], [])
+  | "swap" ->
+      Some
+        ( [ TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 0); TyVar (TypeId 1) ] )
+  | "bury" ->
+      Some
+        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 1); TyVar (TypeId 0); TyVar (TypeId 2) ] )
+  | "unbury" ->
+      Some
+        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
+          [ TyVar (TypeId 0); TyVar (TypeId 2); TyVar (TypeId 1) ] )
+  | "+" -> Some ([ ty_int; ty_int ], [ ty_int ])
+  | "*" -> Some ([ ty_int; ty_int ], [ ty_int ])
+  | "^" -> Some ([ ty_str; ty_str ], [ ty_str ])
+  | "print" -> Some ([ ty_str ], [])
+  | "show" -> Some ([ ty_int ], [ ty_str ])
+  | _ -> None
+
 let rec infer env tree =
   let stack = ref [] in
   let vars = ref [] in
-
-  let prims =
-    [
-      ("dup", ([ TyVar (TypeId 0) ], [ TyVar (TypeId 0); TyVar (TypeId 0) ]));
-      ("drop", ([ TyVar (TypeId 0) ], []));
-      ( "swap",
-        ( [ TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 0); TyVar (TypeId 1) ] ) );
-      ( "bury",
-        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 1); TyVar (TypeId 0); TyVar (TypeId 2) ] ) );
-      ( "unbury",
-        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 0); TyVar (TypeId 2); TyVar (TypeId 1) ] ) );
-      ("+", ([ ty_int; ty_int ], [ ty_int ]));
-      ("*", ([ ty_int; ty_int ], [ ty_int ]));
-      ("^", ([ ty_str; ty_str ], [ ty_str ]));
-      ("print", ([ ty_str ], []));
-      ("show", ([ ty_int ], [ ty_str ]));
-    ]
-  in
-  Hashtbl.add_seq env.sigs (List.to_seq prims);
 
   let ensure_args n =
     let deficit = n - List.length !stack in
@@ -149,6 +150,18 @@ let rec infer env tree =
         stack := !stack @ [ TyVar id ];
         vars := !vars @ [ id ]
       done
+  in
+
+  let run_word eff =
+    let takes, leaves = instantiate_effect env eff in
+    let arity = List.length takes in
+    ensure_args arity;
+    unify_list env takes (List.take arity !stack);
+    for _ = 1 to arity do
+      stack := List.tl !stack
+    done;
+    let leaves' = List.map (substitute_ty env) leaves in
+    stack := leaves' @ !stack
   in
 
   let rec aux' =
@@ -164,29 +177,21 @@ let rec infer env tree =
     | EAtom (AString _) :: xs ->
         stack := ty_str :: !stack;
         aux' xs
-    | EAtom (AWord w) :: xs -> (
-        match Hashtbl.find_opt env.sigs w with
-        | None -> raise (Unknown_word w)
-        | Some eff ->
-            let takes, leaves = instantiate_effect env eff in
-            let arity = List.length takes in
-            ensure_args arity;
-            unify_list env takes (List.take arity !stack);
-            for _ = 1 to arity do
-              match !stack with
-              | [] -> failwith "really shouldn't happen"
-              | _ :: xs -> stack := xs
-            done;
-            let leaves' = List.map (substitute_ty env) leaves in
-            stack := leaves' @ !stack;
-            aux' xs)
+    | EAtom (AWord w) :: xs ->
+        (match prim_effect w with
+        | Some eff -> run_word eff
+        | None -> (
+            match Hashtbl.find_opt env.sigs w with
+            | Some eff -> run_word eff
+            | None -> raise (Unknown_word w)));
+        aux' xs
     | EGroup x :: xs ->
         aux' x;
         aux' xs
     | [] -> ()
   in
   aux' [ tree ];
-  let inputs = !vars |> List.map (fun var -> substitute_ty env (TyVar var)) in
+  let inputs = List.map (fun var -> substitute_ty env (TyVar var)) !vars in
   let outputs = List.map (substitute_ty env) !stack in
   (inputs, outputs)
 
