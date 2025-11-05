@@ -1,5 +1,7 @@
+open Primitive
+
 type value = VInt of int | VStr of string
-type ty_r = RInt | RStr | RAny
+type reified_ty = RInt | RStr | RAny
 
 exception Mismatch
 exception Dirty
@@ -9,20 +11,8 @@ let string_of_value = function
   | VInt i -> string_of_int i
   | VStr s -> "\"" ^ String.escaped s ^ "\""
 
-type prim =
-  | PrimAdd
-  | PrimMul
-  | PrimConcat
-  | PrimSwap
-  | PrimDup
-  | PrimDrop
-  | PrimBury
-  | PrimUnbury
-  | PrimShow
-  | PrimPrint
-
-type word_def = Infer.ty list * Infer.ty list * Parsing.expr
-type thunk = ThPrim of prim | ThWord of word_def
+type word_def = reified_ty list * reified_ty list * Parsing.expr
+type thunk = ThPrim of primitive | ThWord of word_def
 
 type env = {
   data : value Stack.t;
@@ -39,41 +29,29 @@ let make_env tenv =
     latent = Stack.of_seq (Seq.singleton (Stack.create ()));
   }
 
-let prim_of_string_opt = function
-  | "+" -> Some PrimAdd
-  | "*" -> Some PrimMul
-  | "^" -> Some PrimConcat
-  | "swap" -> Some PrimSwap
-  | "dup" -> Some PrimDup
-  | "drop" -> Some PrimDrop
-  | "bury" -> Some PrimBury
-  | "unbury" -> Some PrimUnbury
-  | "show" -> Some PrimShow
-  | "print" -> Some PrimPrint
-  | _ -> None
+let reify_ty =
+  let open Typing in
+  function
+  | TyCon "Int" -> RInt
+  | TyCon "Str" -> RStr
+  | TyVar _ -> RAny
+  | t ->
+      failwith (Printf.sprintf "type %s couldn't be reified" (string_of_ty t))
 
-let prim_shape = function
-  | PrimAdd | PrimMul -> ([ RInt; RInt ], [ RInt ])
-  | PrimConcat -> ([ RStr; RStr ], [ RStr ])
-  | PrimSwap -> ([ RAny; RAny ], [ RAny; RAny ])
-  | PrimDrop -> ([ RAny ], [])
-  | PrimDup -> ([ RAny ], [ RAny; RAny ])
-  | PrimUnbury -> ([ RAny; RAny; RAny ], [ RAny; RAny; RAny ])
-  | PrimBury -> ([ RAny; RAny; RAny ], [ RAny; RAny; RAny ])
-  | PrimShow -> ([ RInt ], [ RStr ])
-  | PrimPrint -> ([ RStr ], [])
+let shape_of_primitive prim =
+  let t, l = effect_of_primitive prim in
+  (List.map reify_ty t, List.map reify_ty l)
 
 let ty_of_value = function VInt _ -> RInt | VStr _ -> RStr
 
 let unify a b =
-  let aux a b =
-    match (a, b) with
-    | RInt, RInt -> true
-    | RStr, RStr -> true
-    | RAny, _ | _, RAny -> true
-    | _, _ -> false
-  in
-  List.compare_lengths a b == 0 && List.for_all2 aux a b
+  match (a, b) with
+  | RInt, RInt -> true
+  | RStr, RStr -> true
+  | RAny, _ | _, RAny -> true
+  | _, _ -> false
+
+let unify_list a b = List.compare_lengths a b == 0 && List.for_all2 unify a b
 
 let do_prim env =
   let arith_op op stk =
@@ -84,40 +62,52 @@ let do_prim env =
     | _ -> raise Mismatch
   in
   function
-  | PrimAdd -> arith_op ( + ) env.data
-  | PrimMul -> arith_op ( * ) env.data
-  | PrimConcat -> (
+  | PAdd -> arith_op ( + ) env.data
+  | PSub -> arith_op ( - ) env.data
+  | PMul -> arith_op ( * ) env.data
+  | PDiv -> (
+      let b = Stack.pop env.data in
+      let a = Stack.pop env.data in
+      match (a, b) with
+      | VInt _, VInt 0 ->
+          Stack.push (VInt 0) env.data;
+          Stack.push (VInt 0) env.data
+      | VInt a, VInt b ->
+          Stack.push (VInt (a / b)) env.data;
+          Stack.push (VInt (a mod b)) env.data
+      | _ -> raise Mismatch)
+  | PConcat -> (
       let b = Stack.pop env.data in
       let a = Stack.pop env.data in
       match (a, b) with
       | VStr a, VStr b -> Stack.push (VStr (a ^ b)) env.data
       | _ -> raise Mismatch)
-  | PrimSwap ->
+  | PSwap ->
       let a = Stack.pop env.data in
       let b = Stack.pop env.data in
       Stack.push a env.data;
       Stack.push b env.data
-  | PrimBury ->
+  | PBury ->
       let c = Stack.pop env.data in
       let b = Stack.pop env.data in
       let a = Stack.pop env.data in
       Stack.push c env.data;
       Stack.push a env.data;
       Stack.push b env.data
-  | PrimUnbury ->
+  | PDig ->
       let c = Stack.pop env.data in
       let b = Stack.pop env.data in
       let a = Stack.pop env.data in
       Stack.push b env.data;
       Stack.push c env.data;
       Stack.push a env.data
-  | PrimDup -> Stack.push (Stack.top env.data) env.data
-  | PrimDrop -> Stack.drop env.data
-  | PrimShow -> (
+  | PDup -> Stack.push (Stack.top env.data) env.data
+  | PDrop -> Stack.drop env.data
+  | PItoa -> (
       match Stack.pop env.data with
       | VInt i -> Stack.push (VStr (string_of_int i)) env.data
       | _ -> raise Mismatch)
-  | PrimPrint -> (
+  | PPrint -> (
       match Stack.pop env.data with
       | VStr s -> print_endline s
       | _ -> raise Mismatch)
@@ -128,26 +118,17 @@ let unify_shape env (takes, _) =
     |> Seq.take (List.length takes)
     |> Seq.map ty_of_value |> List.of_seq
   in
-  unify takes shape_of_stk
-
-let reify_ty = function
-  | Infer.TyCon "Int" -> RInt
-  | Infer.TyCon "Str" -> RStr
-  | Infer.TyVar _ -> RAny
-  | t ->
-      failwith
-        (Printf.sprintf "type %s couldn't be reified" (Infer.string_of_ty t))
+  unify_list takes shape_of_stk
 
 let rec latent_check env =
   let lstk = Stack.top env.latent in
   match Stack.top_opt lstk with
   | Some (ThPrim p) ->
-      if unify_shape env (prim_shape p) then (
+      if unify_shape env (shape_of_primitive p) then (
         Stack.drop lstk;
         do_prim env p)
   | Some (ThWord (takes, leaves, defn)) ->
-      if unify_shape env (List.map reify_ty takes, List.map reify_ty leaves)
-      then (
+      if unify_shape env (takes, leaves) then (
         Stack.drop lstk;
         interpret env defn)
   | None -> ()
@@ -171,21 +152,20 @@ and interpret env expr =
         aux xs
     | EAtom (AWord "def") :: EAtom (AWord name) :: (EGroup _ as defn) :: xs ->
         (match Hashtbl.find_opt env.tenv.sigs name with
-        | Some (takes, leaves) -> Hashtbl.add env.defs name (takes, leaves, defn)
+        | Some (takes, leaves) ->
+            Hashtbl.add env.defs name
+              (List.map reify_ty takes, List.map reify_ty leaves, defn)
         | None -> failwith "should not happen");
         aux xs
     | EAtom (AWord w) :: xs ->
-        (match prim_of_string_opt w with
+        (match primitive_of_string w with
         | Some prim ->
-            if prim_shape prim |> unify_shape env then do_prim env prim
+            if shape_of_primitive prim |> unify_shape env then do_prim env prim
             else Stack.push (ThPrim prim) (Stack.top env.latent)
         | _ -> (
             match Hashtbl.find_opt env.defs w with
             | Some ((takes, leaves, defn) as d) ->
-                if
-                  unify_shape env
-                    (List.map reify_ty takes, List.map reify_ty leaves)
-                then aux [ defn ]
+                if unify_shape env (takes, leaves) then aux [ defn ]
                 else Stack.push (ThWord d) (Stack.top env.latent)
             | None -> raise (Unknown_word w)));
         aux xs

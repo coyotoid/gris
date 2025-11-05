@@ -18,3 +18,10 @@ the concept of the latent stack as the interpreter does, so programs that would
 execute correctly will have their effect incorrectly inferred.
 
 i am working on getting this done, i just need to figure out how :-)
+
+### to-do
+
+- [ ] finish the type checker
+- [ ] rework lexer and parser... perhaps?
+  - would like to have a proper expression tree as opposed to working directly
+    on a s-exp

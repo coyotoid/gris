@@ -2,4 +2,4 @@
  (name iron)
  (libraries containers-data)
  (inline_tests)
- (preprocess (pps ppx_expect)))
+ (preprocess (pps ppx_expect ppx_deriving.enum)))

@@ -14,14 +14,14 @@ let () =
     (match eff with
     | [], [] -> ()
     | _, _ ->
-        Printf.eprintf "Inferred effect: %s\n" (Infer.string_of_eff_pretty eff));
+        Printf.eprintf "Inferred effect: %s\n" (Typing.string_of_eff_pretty eff));
 
     (* Print user definitions with their inferred effects *)
     if Hashtbl.length tenv.sigs <> 0 then (
       prerr_endline "User definitions:";
       Hashtbl.iter
         (fun name eff ->
-          Printf.eprintf "    %s : %s\n" name (Infer.string_of_eff_pretty eff))
+          Printf.eprintf "    %s : %s\n" name (Typing.string_of_eff_pretty eff))
         tenv.sigs);
 
     (* Execute the code *)

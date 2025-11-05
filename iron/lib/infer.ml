@@ -1,50 +1,7 @@
-exception Type_error of string
+open Typing
+open Primitive
+
 exception Unknown_word of string
-
-type[@ocaml.unboxed] type_id = TypeId of int
-type ty = TyVar of type_id | TyCon of string
-
-let string_of_ty = function
-  | TyCon n -> n
-  | TyVar (TypeId v) -> Printf.sprintf "'%d" v
-
-let ty_int = TyCon "Int"
-let ty_str = TyCon "Str"
-
-type eff =
-  ty list * ty list (* stored top-first: (a b c -- a) -> ([c; b; a], [a]) *)
-
-let string_of_eff (takes, leaves) =
-  let show_list = function
-    | [] -> "[]"
-    | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty xs) ^ "]"
-  in
-  show_list takes ^ " -> " ^ show_list leaves
-
-let string_of_eff_pretty (takes, leaves) =
-  let collect_vars acc tys =
-    let aux acc = function
-      | TyCon _ -> acc
-      | TyVar i -> if List.mem i acc then acc else i :: acc
-    in
-    List.fold_left aux acc tys
-  in
-  let name_of_ix i =
-    let base = Char.chr (Char.code 'a' + (i mod 26)) in
-    if i < 26 then String.make 1 base else Printf.sprintf "%c%d" base (i / 26)
-  in
-  let ids = collect_vars (collect_vars [] takes) leaves in
-  let vars = Hashtbl.create (List.length ids) in
-  List.iteri (fun idx id -> Hashtbl.add vars id (name_of_ix idx)) ids;
-  let string_of_ty_pretty = function
-    | TyVar id -> Hashtbl.find vars id
-    | t -> string_of_ty t
-  in
-  let show_list = function
-    | [] -> "[]"
-    | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty_pretty xs) ^ "]"
-  in
-  show_list takes ^ " -> " ^ show_list leaves
 
 type ty_env = {
   vars : (type_id, ty) Hashtbl.t;
@@ -115,29 +72,6 @@ let instantiate_effect env (takes, leaves) =
   let aux = List.map (function TyVar v -> TyVar (fresh v) | t -> t) in
   (aux takes, aux leaves)
 
-let prim_effect name : eff option =
-  match name with
-  | "dup" -> Some ([ TyVar (TypeId 0) ], [ TyVar (TypeId 0); TyVar (TypeId 0) ])
-  | "drop" -> Some ([ TyVar (TypeId 0) ], [])
-  | "swap" ->
-      Some
-        ( [ TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 0); TyVar (TypeId 1) ] )
-  | "bury" ->
-      Some
-        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 1); TyVar (TypeId 0); TyVar (TypeId 2) ] )
-  | "unbury" ->
-      Some
-        ( [ TyVar (TypeId 2); TyVar (TypeId 1); TyVar (TypeId 0) ],
-          [ TyVar (TypeId 0); TyVar (TypeId 2); TyVar (TypeId 1) ] )
-  | "+" -> Some ([ ty_int; ty_int ], [ ty_int ])
-  | "*" -> Some ([ ty_int; ty_int ], [ ty_int ])
-  | "^" -> Some ([ ty_str; ty_str ], [ ty_str ])
-  | "print" -> Some ([ ty_str ], [])
-  | "show" -> Some ([ ty_int ], [ ty_str ])
-  | _ -> None
-
 let rec infer env tree =
   let stack = CCDeque.create () in
   let vars = CCDeque.create () in
@@ -182,8 +116,8 @@ let rec infer env tree =
         CCDeque.push_front stack ty_str;
         aux' xs
     | EAtom (AWord w) :: xs ->
-        (match prim_effect w with
-        | Some eff -> run_word eff
+        (match primitive_of_string w with
+        | Some prim -> run_word (effect_of_primitive prim)
         | None -> (
             match Hashtbl.find_opt env.sigs w with
             | Some eff -> run_word eff
