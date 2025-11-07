@@ -3,52 +3,48 @@ open Ast
 %}
 
 %token EOF
-%token <int> INT
-%token <string> STRING
+
 %token <string> WORD
-%token LEFT_PAREN
-%token RIGHT_PAREN
-%token LEFT_BRACKET
-%token RIGHT_BRACKET
+%token <Ast.literal> LITERAL
+
+%token LPAREN
+%token RPAREN
+%token LBRACKET
+%token RBRACKET
 
 %token DEF
+%token IN
 
-%type <Ast.expr> top_expr
-%start top_expr
+%type <Ast.expr> program
+
+%start program
 
 %%
 
-let term := word | lit | group | quote
+let program :=
+  | ~ = expr; EOF;               <>
+  | ~ = define; EOF;             <>
+  | ~ = define; IN; ~ = program; <ECat>
+  | EOF;                         { EId }
 
-top_expr:
-  | d=def; EOF { d }
-  | e=expr; EOF { e }
-  | d=def; e=top_expr; { ECat (d, e) }
-  | EOF { EId }
+let define :=
+  | DEF; ~ = WORD; ~ = expr; <EDef>
 
-def:
-  | DEF; n=WORD; e=term { EDef (n, e) }
+let expr :=
+  | ~ = term;           <>
+  | ~ = term; ~ = expr; <ECat>
 
-expr:
-  | t=term { t }
-  | t=term; e=expr
-    { match e with
-      | EId -> t
-      | _ -> ECat (t, e) }
-  ;
+let term := word | literal | group | quote
 
-word:
-  | w=WORD { ECall w }
-  ;
-lit:
-  | i=INT    { EPush (AInt i) }
-  | s=STRING { EPush (AStr s) }
-  ;
-group:
-  | LEFT_PAREN; e=expr; RIGHT_PAREN { EGroup e }
-  | LEFT_PAREN;         RIGHT_PAREN { EGroup EId }
-  ;
-quote:
-  | LEFT_BRACKET; e=expr; RIGHT_BRACKET { EQuote e }
-  | LEFT_BRACKET;         RIGHT_BRACKET { EQuote EId }
-  ;
+let word :=
+  | ~ = WORD; <ECall>
+
+let literal := ~ = LITERAL; <EPush>
+
+  let group :=
+  | LPAREN;           RPAREN; { EGroup EId }
+  | LPAREN; ~ = expr; RPAREN; <EGroup>
+
+let quote :=
+  | LBRACKET;           RBRACKET; { EBlock EId }
+  | LBRACKET; ~ = expr; RBRACKET; <EBlock>

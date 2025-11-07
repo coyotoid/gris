@@ -2,7 +2,7 @@
  (name iron)
  (libraries containers-data)
  (inline_tests)
- (preprocess (pps ppx_expect ppx_deriving.enum)))
+ (preprocess (pps ppx_expect)))
 
 (ocamllex Lexer)
 (menhir (modules Parser))

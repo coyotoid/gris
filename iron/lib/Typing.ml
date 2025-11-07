@@ -5,6 +5,7 @@ type ty = TyVar of type_id | TyCon of string
 
 let ty_int = TyCon "Int"
 let ty_str = TyCon "Str"
+let ty_bool = TyCon "Bool"
 
 let string_of_ty = function
   | TyCon n -> n
@@ -14,13 +15,6 @@ type eff =
   ty list * ty list (* stored top-first: (a b c -- a) -> ([c; b; a], [a]) *)
 
 let string_of_eff (takes, leaves) =
-  let show_list = function
-    | [] -> "[]"
-    | xs -> "[" ^ String.concat " " (List.rev_map string_of_ty xs) ^ "]"
-  in
-  show_list takes ^ " -> " ^ show_list leaves
-
-let string_of_eff_pretty (takes, leaves) =
   let collect_vars acc tys =
     let aux acc = function
       | TyCon _ -> acc

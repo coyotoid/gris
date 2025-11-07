@@ -1,4 +1,5 @@
-{ open Parser }
+{ open Parser
+  open Ast }
 
 let digit = ['0'-'9']
 let sign = ['-' '+']
@@ -11,26 +12,34 @@ let white = [' ' '\t']+
 let nl = '\r' | '\n' | "\r\n"
 
 rule token = parse
-  | white { token lexbuf }
-  | '\n'  { Lexing.new_line lexbuf; token lexbuf }
-  | "def" { DEF }
-  | int   { INT (int_of_string (Lexing.lexeme lexbuf)) }
-  | ident { WORD (Lexing.lexeme lexbuf) }
-  | '"'   { read_string (Buffer.create 31) lexbuf }
-  | '('   { LEFT_PAREN }
-  | ')'   { RIGHT_PAREN }
-  | '['   { LEFT_BRACKET }
-  | ']'   { RIGHT_BRACKET }
-  | ';'   { token lexbuf }
-  | '#'   { skip_line lexbuf }
-  | _     { raise (Failure ("Character not allowed in source text: '" ^ Lexing.lexeme lexbuf ^ "'")) }
-  | eof   { EOF }
-and skip_line = parse
-  | '\n' { Lexing.new_line lexbuf; token lexbuf }
-  | eof  { EOF }
-  | _    { skip_line lexbuf }
+  | white   { token lexbuf }
+  | '\n'    { Lexing.new_line lexbuf; token lexbuf }
+
+  (* keywords *)
+  | "def"   { DEF }
+  | "in"    { IN }
+
+  (* punctuation *)
+  | '('     { LPAREN }
+  | ')'     { RPAREN }
+  | '{'     { LBRACKET }
+  | '}'     { RBRACKET }
+  | ';'     { token lexbuf }
+  | '#'     { skip_line lexbuf }
+
+  (* literals *)
+  | "true"  { LITERAL (LBool true) }
+  | "false" { LITERAL (LBool false) }
+  | '"'     { read_string (Buffer.create 31) lexbuf }
+  | int     { LITERAL (LInt (int_of_string (Lexing.lexeme lexbuf))) }
+
+  (* the rest *)
+  | ident   { WORD (Lexing.lexeme lexbuf) }
+  | _       { raise (Failure ("character not allowed in source text: '" ^ Lexing.lexeme lexbuf ^ "'")) }
+  | eof     { EOF }
+
 and read_string buf = parse
-  | '"'       { STRING (Buffer.contents buf) }
+  | '"'       { LITERAL (LStr (Buffer.contents buf)) }
   | '\\' '\\' { Buffer.add_char buf '\\'; read_string buf lexbuf }
   | '\\' 'n'  { Buffer.add_char buf '\n'; read_string buf lexbuf }
   | '\\' 'r'  { Buffer.add_char buf '\r'; read_string buf lexbuf }
@@ -40,3 +49,8 @@ and read_string buf = parse
       read_string buf lexbuf; }
   | _ { raise (Failure ("Illegal string character: " ^ Lexing.lexeme lexbuf)) }
   | eof { raise (Failure "Unterminated string literal") }
+
+and skip_line = parse
+  | '\n' { Lexing.new_line lexbuf; token lexbuf }
+  | eof  { EOF }
+  | _    { skip_line lexbuf }

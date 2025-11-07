@@ -1,8 +1,8 @@
 # should infer as [a b] -> [b]
-def nip (swap drop)
+def nip swap drop in
 
 # should infer as [a b] -> [a b a]
-def over (swap dup bury)
+def over swap dup bury in
 
 # should infer as [a b] -> [b a b]
-def tuck (dup bury)
+def tuck dup bury

@@ -1,15 +1,18 @@
 open Primitive
 
-type value = VInt of int | VStr of string
-type reified_ty = RInt | RStr | RAny
+type reified_ty = RInt | RStr | RBool | RBlock | RAny
+
+type value = VInt of int | VStr of string | VBool of bool | VBlock of Ast.expr
+
+let string_of_value = function
+  | VInt i -> string_of_int i
+  | VBool b -> string_of_bool b
+  | VStr s -> "\"" ^ String.escaped s ^ "\""
+  | VBlock e -> Printf.sprintf "{%s}" (Ast.string_of_expr e)
 
 exception Mismatch
 exception Dirty
 exception Unknown_word of string
-
-let string_of_value = function
-  | VInt i -> string_of_int i
-  | VStr s -> "\"" ^ String.escaped s ^ "\""
 
 type word_def = reified_ty list * reified_ty list * Ast.expr
 type thunk = ThPrim of primitive | ThWord of word_def
@@ -42,7 +45,11 @@ let shape_of_primitive prim =
   let reify_all = List.map reify_ty in
   Pair.map reify_all reify_all (effect_of_primitive prim)
 
-let ty_of_value = function VInt _ -> RInt | VStr _ -> RStr
+let ty_of_value = function
+  | VInt _ -> RInt
+  | VStr _ -> RStr
+  | VBool _ -> RBool
+  | VBlock _ -> RBlock
 
 let unify a b =
   match (a, b) with
@@ -109,7 +116,7 @@ let run_primitive env =
       | _ -> raise Mismatch)
   | PPrint -> (
       match Stack.pop env.data with
-      | VStr s -> print_endline s
+      | VStr s -> print_string s
       | _ -> raise Mismatch)
 
 let unify_shape env (takes, _) =
@@ -146,14 +153,13 @@ and interpret env expr =
     match next with
     | EId -> ()
     | ECat (e1, e2) ->
-      aux e1;
-      aux e2;
-    | EPush (AInt i) ->
-        Stack.push (VInt i) env.data;
-    | EPush (AStr s) ->
-        Stack.push (VStr s) env.data;
-    | ECall name ->
-        (match primitive_of_string name with
+        aux e1;
+        aux e2
+    | EPush (LInt i) -> Stack.push (VInt i) env.data
+    | EPush (LBool b) -> Stack.push (VBool b) env.data
+    | EPush (LStr s) -> Stack.push (VStr s) env.data
+    | ECall name -> (
+        match primitive_of_string name with
         | Some prim ->
             if unify_shape env (shape_of_primitive prim) then
               run_primitive env prim
@@ -163,15 +169,14 @@ and interpret env expr =
             | Some ((takes, leaves, defn) as d) ->
                 if unify_shape env (takes, leaves) then aux defn
                 else Stack.push (ThWord d) (Stack.top env.latent)
-            | None -> raise (Unknown_word name)));
-    | EDef (name, def) ->
-        (match Hashtbl.find_opt env.tenv.sigs name with
+            | None -> raise (Unknown_word name)))
+    | EDef (name, def) -> (
+        match Hashtbl.find_opt env.tenv.sigs name with
         | Some (takes, leaves) ->
             Hashtbl.add env.defs name
               (List.map reify_ty takes, List.map reify_ty leaves, def)
-        | None -> failwith "should not happen");
-    | EGroup grp ->
-        with_latent_scope env (fun () -> aux grp);
-    | EQuote _ -> failwith "unimplemented"
+        | None -> failwith "should not happen")
+    | EGroup grp -> with_latent_scope env (fun () -> aux grp)
+    | EBlock blk -> Stack.push (VBlock blk) env.data
   in
   aux expr

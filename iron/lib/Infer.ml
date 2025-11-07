@@ -109,8 +109,9 @@ let rec infer env expr =
     | ECat (e1, e2) ->
         aux e1;
         aux e2
-    | EPush (AInt _) -> CCDeque.push_front stack ty_int
-    | EPush (AStr _) -> CCDeque.push_front stack ty_str
+    | EPush (LInt _) -> CCDeque.push_front stack ty_int
+    | EPush (LStr _) -> CCDeque.push_front stack ty_str
+    | EPush (LBool _) -> CCDeque.push_front stack ty_bool
     | ECall name -> (
         match primitive_of_string name with
         | Some prim -> infer_word (effect_of_primitive prim)
@@ -120,7 +121,7 @@ let rec infer env expr =
             | None -> raise (Unknown_word name)))
     | EDef (name, def) -> Hashtbl.add env.sigs name (infer env def)
     | EGroup e -> aux e
-    | EQuote _ -> failwith "unimplemented"
+    | EBlock _ -> failwith "unimplemented"
   in
   aux expr;
   let inputs =

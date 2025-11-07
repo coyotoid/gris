@@ -1,5 +1,6 @@
-def addmul (bury + *)
-def scream ("!" ..)
-def ! (itoa scream print)
+def addmul bury + * in
+def scream "!" .. in
+def println "\n" .. print in
+def ! itoa scream println in
 
 1 2 3 addmul !

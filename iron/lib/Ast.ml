@@ -1,23 +1,24 @@
-type atom = AInt of int | AStr of string
+type literal = LInt of int | LStr of string | LBool of bool
+
+let string_of_literal = function
+  | LInt i -> string_of_int i
+  | LBool b -> string_of_bool b
+  | LStr s -> "\"" ^ String.escaped s ^ "\""
 
 type expr =
   | EId
   | ECat of expr * expr
-  | EPush of atom
+  | EPush of literal
   | ECall of string
   | EDef of string * expr
   | EGroup of expr
-  | EQuote of expr
-
-let string_of_atom = function
-  | AInt i -> string_of_int i
-  | AStr s -> "\"" ^ String.escaped s ^ "\""
+  | EBlock of expr
 
 let rec string_of_expr = function
   | EId -> ""
   | ECat (e1, e2) -> string_of_expr e1 ^ " " ^ string_of_expr e2
-  | EPush a -> string_of_atom a
+  | EPush a -> string_of_literal a
   | ECall w -> w
-  | EDef (n, e) -> "def " ^ n ^ " " ^ string_of_expr e
+  | EDef (n, e) -> Printf.sprintf "def %s = %s in" n (string_of_expr e)
   | EGroup e -> "(" ^ string_of_expr e ^ ")"
-  | EQuote e -> "[" ^ string_of_expr e ^ "]"
+  | EBlock e -> "{" ^ string_of_expr e ^ "}"

@@ -1,4 +1,5 @@
 open Iron
+open Printf
 
 let () =
   if Array.length Sys.argv < 2 then
@@ -8,7 +9,7 @@ let () =
       String.concat " " (Array.to_seq Sys.argv |> Seq.drop 1 |> List.of_seq)
     in
     let lexer = Lexing.from_string code in
-    let expr = Parser.top_expr Lexer.token lexer in
+    let expr = Parser.program Lexer.token lexer in
     let tenv = Infer.make_ty_env () in
     let eff = Infer.infer tenv expr in
 
@@ -16,14 +17,14 @@ let () =
     (match eff with
     | [], [] -> ()
     | _, _ ->
-        Printf.eprintf "Inferred effect: %s\n" (Typing.string_of_eff_pretty eff));
+        eprintf "Inferred effect: %s\n" (Typing.string_of_eff eff));
 
     (* Print user definitions with their inferred effects *)
     if Hashtbl.length tenv.sigs <> 0 then (
       prerr_endline "User definitions:";
       Hashtbl.iter
         (fun name eff ->
-          Printf.eprintf "    %s : %s\n" name (Typing.string_of_eff_pretty eff))
+          eprintf "  %s : %s\n" name (Typing.string_of_eff eff))
         tenv.sigs);
 
     (* Execute the code *)
@@ -33,7 +34,7 @@ let () =
       Interpreter.interpret env expr;
       Out_channel.flush_all ();
       if Stack.length env.data > 0 then
-        Printf.eprintf "Resulting stack: [%s]\n"
+        eprintf "Resulting stack: [%s]\n"
           (Stack.to_seq env.data |> List.of_seq
           |> List.rev_map Interpreter.string_of_value
           |> String.concat " ")

@@ -1,5 +1,5 @@
 type primitive =
-  | PSwap [@value 1]
+  | PSwap
   | PDup
   | PDrop
   | PBury
@@ -11,7 +11,6 @@ type primitive =
   | PConcat
   | PItoa
   | PPrint
-[@@deriving enum]
 
 let string_of_primitive = function
   | PSwap -> "swap"
